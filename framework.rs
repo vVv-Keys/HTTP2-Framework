@@ -6,10 +6,12 @@ use std::time::Duration;
 use structopt::StructOpt;
 use tokio::net::TcpStream;
 use tokio::sync::Semaphore;
-use tokio_rustls::rustls::{ClientConfig, RootCertStore, ProtocolVersion};
+use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 use tokio_rustls::TlsConnector;
 use tracing::{debug, error, info};
 use tracing_subscriber;
+
+use http::Version; // Added import for http::Version
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "http2_client")]
@@ -77,23 +79,13 @@ async fn main() {
             return;
         }
     };
-    let domain = authority.host();
+    let domain = authority.host().unwrap_or_default(); // Use unwrap_or_default to handle None case
 
     // Configure TLS
     let mut root_cert_store = RootCertStore::empty();
-    root_cert_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-        tokio_rustls::rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-            ta.subject,
-            ta.spki,
-            ta.name_constraints,
-        )
-    }));
+    root_cert_store.add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
 
-    let config = ClientConfig::builder()
-        .with_safe_defaults()
-        .with_protocol_versions(&[ProtocolVersion::TLSv1_2, ProtocolVersion::TLSv1_3])
-        .with_root_certificates(root_cert_store)
-        .with_no_client_auth();
+    let config = ClientConfig::new();
 
     let connector = TlsConnector::from(Arc::new(config));
     let tcp = match TcpStream::connect((authority.host(), 443)).await {
@@ -103,7 +95,7 @@ async fn main() {
             return;
         }
     };
-    let tls = match connector.connect(domain.try_into().unwrap(), tcp).await {
+    let tls = match connector.connect(domain.try_into().unwrap_or_default(), tcp).await { // Use unwrap_or_default to handle None case
         Ok(stream) => stream,
         Err(e) => {
             error!("Failed to perform TLS handshake: {}", e);
@@ -138,11 +130,10 @@ async fn main() {
         let permit = semaphore.acquire().await.unwrap();
         tokio::spawn(async move {
             let stream_id = stream_counter.fetch_add(2, Ordering::SeqCst);
-            let mut request = client::Request::builder()
+            let mut request = hyper::Request::builder()
                 .method("GET")
                 .uri(&opt.url)
-                .version(h2::Version::HTTP_2)
-                .header("User-Agent", "h2-client/0.1");
+                .version(Version::HTTP_2);
 
             for header in headers {
                 let parts: Vec<&str> = header.splitn(2, ':').collect();
@@ -183,8 +174,6 @@ async fn main() {
 
             drop(permit);
             tokio::time::sleep(Duration::from_millis(opt.delay)).await;
-        })
-        .await
-        .unwrap();
+        });
     }
 }
