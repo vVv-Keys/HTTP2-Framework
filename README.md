@@ -66,3 +66,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 Special thanks to the contributors and open-source projects that made this framework possible.
 
+Inspired by: https://github.com/secengjeff/rapidresetclient
+
