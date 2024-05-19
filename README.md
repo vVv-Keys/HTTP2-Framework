@@ -83,3 +83,10 @@ Special thanks to the contributors and open-source projects that made this frame
 
 Inspired by: https://github.com/secengjeff/rapidresetclient
 
+
+Framework/CLIENT SIDE BY SIDE:
+
+
+![image](https://github.com/vVv-Keys/HTTP2-Framework/assets/49612041/8f4be8a8-8e0b-4a69-a3a3-5f8e4e2daaa5)
+
+
