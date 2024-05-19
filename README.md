@@ -77,16 +77,11 @@ Contributions are welcome! If you encounter any issues or have suggestions for i
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
+![image](https://github.com/vVv-Keys/HTTP2-Framework/assets/49612041/8f4be8a8-8e0b-4a69-a3a3-5f8e4e2daaa5)
+
 # Acknowledgements
 
 Special thanks to the contributors and open-source projects that made this framework possible.
 
 Inspired by: https://github.com/secengjeff/rapidresetclient
-
-
-Framework/CLIENT SIDE BY SIDE:
-
-
-![image](https://github.com/vVv-Keys/HTTP2-Framework/assets/49612041/8f4be8a8-8e0b-4a69-a3a3-5f8e4e2daaa5)
-
-
+: https://github.com/secengjeff
